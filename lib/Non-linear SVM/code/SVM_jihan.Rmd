@@ -1,0 +1,227 @@
+---
+title: "RBF-SVM"
+author: "Jihan Wei (jw3447)"
+date: "2017Äê3ÔÂ19ÈÕ"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Step 0: Install packages and specify directories:
+
+In this step, we check whether the needed packages are correctly installed and then set the path for training and testing data. 
+```{r}
+packages.used=c("e1071","EBImage","ggplot2")
+packages.needed=setdiff(packages.used, intersect(installed.packages()[,1], packages.used))
+if(length(packages.needed)>0){
+  install.packages(packages.needed, dependencies = TRUE)
+}
+library(EBImage)
+library(e1071)
+library(ggplot2)
+```
+
+
+```{r}
+# here replace it with your own path or manually set it in RStudio to where this rmd file is located.
+#setwd("./spr2017-proj3-group-1/")
+```
+
+Provide directories for raw images.Instead of putting them separately in different files, we generate random numbers to split the data.
+
+Note, to ensure the results are reproducible, set.seed() is used whenever randomization is needed. However, you can change the option if you like.
+```{r}
+##here is where all the given 2000 pictures are put
+experiment_dir <- "../data/training_data/raw_images/"  
+##here is where all the independent testing set are put (it will be given in class)
+#testing_dir <- "../data/extra_data/raw_images/" 
+```
+
+
+Step 1: set up controls for evaluation experiments.
+
+In this chunk,we have a set of controls for the evaluation experiments.
+* (T/F) use set.seed before randomization to get reproducible results.
+* (T/F) cross-validation on the training set
+* (number) K, the number of CV folds
+* (T/F) use our created new features to build the model
+* (T/F) run evaluation on an independent test set
+```{r}
+set_seed=FALSE         #use set.seed() whenever randomization needed
+run.cv=TRUE            # run cross-validation on the training set
+K <- 5                 # number of CV folds
+train_proportion=0.60  # Porportion of the data that used for training the model
+new.feature.train =TRUE      #process features for gievn training set
+new.feature.test=TRUE       # process features for independent testing set
+run.test=TRUE        # run evaluation on an independent test set
+```
+
+Step 2: import training images class labels:
+
+```{r}
+y<- read.table("../data/training_data/labels.csv", header=T)
+y<-as.factor(t(y))
+n<-length(y)
+```
+
+Step 3: Preparation for Training the model:
+Step 3.1:Extract new features:
+```{r}
+source("../lib/extract_feature.R")
+
+tm_feature_train <- NA
+if(new.feature.train){
+  tm_feature_train<- system.time(X <- extract_feature(img_dir=experiment_dir,                                                 data_name="Newfeature_train", export=T))
+  #X is 2000*1024
+  } else {
+  X <-t(read.csv("../data/training_data/sift_features/sift_features.csv",header=T))
+  #X is 2000*5000  
+  }
+
+
+
+tm_feature_indetest<-NA
+if(new.feature.test){
+  tm_feature_indetest<- system.time(X_inde_test<- extract_feature(testing_dir,                                                 data_name="Newfeature_inde_test", export=T))
+  
+  save(X_inde_test,file="../output/Newfeature_inde_test.RData")
+}
+
+```
+
+Step 3.2:Random split the data to training and testing set:
+```{r}
+if(set_seed){
+  set.seed(0)
+  Index<-sample(n,round(train_proportion*n,1),replace = F)
+} else{
+  Index<-sample(n,round(train_proportion*n,1),replace = F)
+}
+#n is the No. of all provided data
+Train.x<- data.matrix(X[Index,])
+Train.y<-y[Index]
+Test.x<-data.matrix(X[-Index,])
+Test.y<-y[-Index]
+```
+
+Step 4: Train a classification model with training images.
+```{r}
+source("../lib/Train_svm.R")
+```
+
+Step 4.1 : Model selection with cross-validation:
+Do model selection by choosing among different values of training model parameters.
+
+For the ¡°RBF¡± SVM, there are 2 major parameters that need to be determined: One is the ¡°Cost¡±: which is the parameter for the soft margin cost function, which controls the influence of each individual support vector; this process involves trading error penalty for stability. And another is Gamma, which represent the bandwidth for the kernel functions.
+
+Due to the fact that we want to pick a ¡°good¡± combination rather than an individual value of parameter, the tuning process for the methods requires longer time than other methods that only involve one parameter. 
+
+Cosidering this, we provide 2 options: Option_1: is trying less combinations, and for Option_2, we try more combinations of ¡°Cost¡± and ¡°Gamma¡±, but it may take long time to perform the Cross-Validation. (maybe 5-6 hours)
+```{r}
+Option_1<-TRUE  ##If you choose FALSE,Option 2 will be used
+```
+
+```{r}
+if (run.cv){
+  ##Set values for the parameters:
+  if (Option_1){
+    candidates<-list(cost=c(.1,0.5,1,1.5,2,3),gamma=c(.001,0.005,0.08,.01,0.5))
+    #candidates<-list(cost=c(.1,0.5,1,1.5,3,5,7),gamma=c(0.5,1,5,10,20,30))
+  } else {
+    candidates<-list(cost=c(.1,0.3,0.5,0.7,0.9,1.1,1.3),gamma=c(.001,0.003,0.005,0.007,.01,0.03))
+  }
+  
+  ##Tune the model:
+  tc<-tune.control(cross = K)  #set K-folds based on user-selection
+  svm_tune <- tune(svm, train.x=Train.x, train.y=Train.y,
+                   kernel="radial",scale=F,ranges=candidates,tunecontrol = tc)
+  
+  
+  ##Get the performacne for each model:
+  performace_svm<-svm_tune$performances
+  
+  ##Save resilts:
+  save(performace_svm, file="../output/performance_cv.RData")
+}
+```
+
+Visualize cross-validation results:
+```{r}
+if (run.cv){
+  ##Plot 3D version:
+  plot(svm_tune ,type='persp', main ="CV error vs different value of margin & bandwidth parameter")
+  
+  ##Plot 2D version(cost as x-axis):
+  performace_svm$gamma2<-as.factor(performace_svm$gamma) 
+  ggplot(data=performace_svm)+ geom_line(aes(x=cost,y=error,linetype=gamma2,col=gamma2))
+  
+  ##Plot 2D version(gamma as x-axis):
+  performace_svm$cost2<-as.factor(performace_svm$cost) 
+  ggplot(data=performace_svm)+ geom_line(aes(x=gamma,y=error,linetype=cost2,col=cost2))
+}
+```
+
+Print the best parameters and train the model:
+```{r}
+tm_train=NA
+if (run.cv){
+  ##Get the parameters with the best results:
+  best_cost<-performace_svm$cost[which.min(performace_svm$error)]
+  best_gamma<-performace_svm$gamma[which.min(performace_svm$error)]
+
+  ##Train the model:
+  tm_train <- system.time(fit_train <- train_svm (Train.x,Train.y,
+                                                 gamma=best_gamma,cost = best_cost))
+} else {
+  tm_train <- system.time(fit_train <- train_svm (Train.x,Train.y))
+}
+
+##Save the model:
+save(fit_train, file="../output/fit_train.RData")
+```
+
+Step 5: Model Evaluation:
+
+Step 5.1: Get the training and testing error based on the given 2000 data:
+```{r}
+##Get the training accuracy:
+pre_train<-predict(fit_train,Train.x)
+mean(pre_train==Train.y)
+
+##Get the test accuracy:
+pre_test<-predict(fit_train,Test.x)
+mean(pre_test==Test.y)
+```
+
+Step 5: Make prediction for new testing set:
+Here, we valuate the model with the completely holdout testing data.
+```{r}
+tm_test=NA
+if(run.test){
+load(file = ("../output/Newfeature_inde_test.RData"))
+tm_test <- system.time(pred_newtest <- predict(fit_train,X_inde_test))
+save(pred_newtest, file="../output/pred_newtest.RData")
+}
+
+#y2<- read.table("../data/extra_data/labels.csv", header=T)
+#y2<-as.factor(t(y22))
+
+#mean(pred_test==y22)
+#pred_test
+```
+
+Step 6: Summarize Running Time
+```{r}
+if (run.test & new.feature.test){
+  cat("Time for constructing training features=", tm_feature_train[1], "s \n")
+  cat("Time for training model=", tm_train[1], "s \n")
+  } else{
+    cat("Time for constructing training features=", tm_feature_train[1], "s \n")
+    cat("Time for training model=", tm_train[1], "s \n")  
+    cat("Time for constructing testing features=", tm_feature_test[1], "s \n")
+    cat("Time for making prediction=", tm_test[1], "s \n")
+}
+```
+

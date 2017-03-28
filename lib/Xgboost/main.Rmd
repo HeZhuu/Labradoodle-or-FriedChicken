@@ -1,0 +1,144 @@
+---
+title: "Xgboost"
+author: "He Zhu"
+date: "3/22/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+ if(!require("randomForest")){
+   install.packages("randomForest")
+ }
+
+ if(!require("ggplot2")){
+   install.packages("ggplot2")
+ }
+
+ if(!require("knitr")){
+   install.packages("knitr")
+ }
+
+library(knitr)
+library(randomForest)
+library(ggplot2)
+```
+
+
+#### Step 0: specify directories.
+
+Set the working directory to the image folder. Specify the training and the testing set. For data without an independent test/validation set, you need to create your own testing data by random subsampling. In order to obain reproducible results, set.seed() whenever randomization is used.
+```{r}
+setwd("/Users/zhuuu/Desktop/spr2017-proj3-grp1-master")
+# here replace it with your own path or manually set it in RStudio to where this rmd file is located
+```
+
+Provide directories for raw images.Instead of putting them separately in different files, we generate random numbers to split the data.
+
+Note, to ensure the results are reproducible, set.seed() is used whenever randomization is needed. However, you can change the option if you like.
+```{r}
+##here is where all the given 2000 pictures are put
+experiment_dir <- "../data/training_data/raw_images/"  
+##here is where all the independent testing set are put (it will be given in class)
+#testing_dir <- "../data/extra_data/raw_images/" 
+```
+
+
+#### Step 1: set up controls for evaluation experiments.
+
+In this chunk,we have a set of controls for the evaluation experiments.
+* (T/F) use set.seed before randomization to get reproducible results.
+* (T/F) cross-validation on the training set
+* (number) K, the number of CV folds
+* (T/F) use our created new features to build the model
+* (T/F) run evaluation on an independent test set
+```{r}
+set_seed=FALSE         #use set.seed() whenever randomization needed
+run.cv=TRUE            # run cross-validation on the training set
+K <- 5                 # number of CV folds
+train_proportion=0.75  # Porportion of the data that used for training the model
+new.feature.train =TRUE      #process features for gievn training set
+new.feature.test=TRUE       # process features for independent testing set
+run.test=TRUE        # run evaluation on an independent test set
+```
+
+#### Step 2: import training data
+Randomly split the data into test and training set (75% training set and 25% test set)
+```{r}
+
+y <- read.csv("./data/sift_labels.csv" , as.is = T)
+data <- read.csv("./data/sift_features.csv",header = T,as.is = T)
+data <- t(data)
+y<-y[1:2000,]
+
+
+index<-sample(1:2000,1500)
+data.train<-data[index,]
+y.train<-y[index]
+
+data.test<-data[-index,]
+y.test<-y[-index]
+```
+
+#### Step 3: Model selection with cross-validation and visualize the results:
+Do model selection by choosing among different values of training model parameters
+```{r}
+train.matrix <- data.matrix(data.train,rownames.force = NA)
+train.D <- xgb.DMatrix(data=train.matrix,label=y.train,missing = NaN)
+watchlist <- list(train.matrix=train.D)
+
+parameters <- list ( objective        = "binary:logistic",
+                     booser              = "gbtree",
+                     eta                 = 0.07,
+                     max_depth           = 6,
+                     subsample           = 0.5,
+                     gamma = 0.03
+)
+
+```
+
+Cross Validation
+```{R}
+crossvalid <- xgb.cv( params             = parameters,
+                      data                = train.D,
+                      nrounds             = 500,
+                      verbose             = 1,
+                      watchlist           = watchlist,
+                      maximize            = FALSE,
+                      nfold               = 5,
+                      early_stopping_rounds    = 8,
+                      print_every_n       = 1
+)
+```
+
+Best iteration result in cross validation
+```{r}
+crossvalid$best_iteration
+```
+
+Train model
+```{r}
+train.model <- xgb.train( params              = parameters,
+                          data                = train.D,
+                          nrounds             = crossvalid$best_iteration, 
+                          verbose             = 1,
+                          watchlist           = watchlist,
+                          maximize            = FALSE
+)
+
+```
+
+#### Prediction
+```{r}
+testmodel <- data.matrix(data.test,rownames.force = NA)
+result <- predict (train.model,testmodel)
+result<-as.numeric(result > 0.5)
+mean(y.test!=result)
+
+```
+
+
+
+
+
+

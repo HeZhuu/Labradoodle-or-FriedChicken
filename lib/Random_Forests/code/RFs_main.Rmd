@@ -1,0 +1,136 @@
+---
+title: "RFs_main"
+author: "Chenyun Zhu"
+date: "3/21/2017"
+output: html_document
+---
+```{r}
+ if(!require("randomForest")){
+   install.packages("randomForest")
+ }
+
+ if(!require("ggplot2")){
+   install.packages("ggplot2")
+ }
+
+ if(!require("knitr")){
+   install.packages("knitr")
+ }
+
+library(knitr)
+library(randomForest)
+library(ggplot2)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+opts_knit$set(root.dir = "~/Desktop/GR5243/spr2017-proj3-grp1")
+```
+
+
+
+
+#### Step 0: specify directories.
+
+Set the working directory to the image folder. Specify the training and the testing set. For data without an independent test/validation set, you need to create your own testing data by random subsampling. In order to obain reproducible results, set.seed() whenever randomization is used.
+```{r}
+# setwd("/Users/chenyun/Desktop/GR5243/spr2017-proj3-grp1")
+# here replace it with your own path or manually set it in RStudio to where this rmd file is located
+```
+
+Provide directories for raw images. Training set and test set should be in different subfolders.
+```{r}
+# experiment_dir <- "../data/zipcode/" # This will be modified for different data sets. img_train_dir <- paste(experiment_dir, "train/", sep="")
+# img_test_dir <- paste(experiment_dir, "test/", sep="")
+```
+
+#### Step 1: set up controls for evaluation experiments.
+In this chunk, ,we have a set of controls for the evaluation experiments.  
+• (T/F) cross-validation on the training set  
+• (number) K, the number of CV folds  
+• (T/F) process features for training set   
+• (T/F) run evaluation on an independent test set • (T/F) run evaluation on an independent test set
+```{r}
+run.cv=TRUE # run cross-validation on the training set 
+K <- 5 # number of CV folds
+run.feature.train = TRUE # process features for training set 
+run.test = TRUE # run evaluation on an independent test set 
+run.feature.test = TRUE # process features for test set
+proportion = 0.75 # training set proportion
+seed = 618 # set seed
+```
+
+#### Step 2: import training data
+Randomly split the data into test and training set (75% training set and 25% test set)
+```{r}
+# setwd("~/Desktop/GR5243/spr2017-proj3-grp1")
+label.train <- read.csv("./data/sift_labels.csv")
+features <- read.csv("./data/sift_features.csv")
+features <- t(features)
+
+n <- dim(features)[1]
+set.seed(seed)
+index <- sample(n, n*proportion)
+
+x.train <- features[index,]
+y.train <- as.vector(label.train[index,])
+
+x.test <- features[-index,]
+y.test <- as.vector(label.train[-index,])
+```
+
+#### Step 3: Model selection with cross-validation and visualize the results:
+Do model selection by choosing among different values of training model parameters
+```{r}
+m <- length(y.train)
+m.fold <- floor(m/K)
+set.seed(seed)
+s <- sample(rep(1:K, c(rep(m.fold, K-1), m-(K-1)*m.fold))) 
+cv.error <- rep(NA, K)
+# tree <- sqrt(dim(X)[2])
+
+for (i in 1:K){
+  train.data <- x.train[s != i,]
+  train.label <- y.train[s != i]
+  test.data <- x.train[s == i,]
+  test.label <- y.train[s == i]
+  
+  fit <- tuneRF(train.data, as.factor(train.label), doBest = TRUE) #test ntree = 500
+  
+  pred <- predict(fit, test.data)
+  cv.error[i] <- mean(pred != test.label)
+}
+
+```
+
+#### Evaluation
+```{r}
+# Visualize Cross Validation
+ggplot(data = data.frame(cv.error)) + geom_point(aes(x = 1:K, y = cv.error), color = "blue")
+
+# Get the lowest error rate of cross validation
+best <- which.min(cv.error)
+
+# Get the 'mtry' for trained model
+system.time(fit.1 <- tuneRF(x.train[s != best,], as.factor(y.train[s != best]), ntree = 70, doBest = TRUE))
+
+save(fit.1, file="./lib/Random_Forests/output/RFs_fit1_train.RData")
+```
+
+#### Prediction
+```{r}
+# Training error
+train_pred <- predict(fit.1, x.train)
+train_error <- mean(train_pred != y.train)
+train_error
+
+# Test error
+test_pred <- predict(fit.1, x.test)
+test_error <- mean(test_pred != y.test)
+test_error
+```
+
+
+
+
+

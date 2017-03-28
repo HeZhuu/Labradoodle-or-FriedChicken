@@ -1,0 +1,3 @@
+load("/Users/chenyun/Desktop/GR5243/spr2017-proj3-grp1/lib/Random_Forests/output/workspace.RData")
+load("/Users/chenyun/Desktop/GR5243/spr2017-proj3-grp1/lib/Random_Forests/output/RFs_fit2_train.RData")
+load("/Users/chenyun/Desktop/GR5243/spr2017-proj3-grp1/lib/Random_Forests/output/workspace_fit2.RData")
